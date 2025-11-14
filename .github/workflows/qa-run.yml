@@ -1,0 +1,89 @@
+name: Run Ecosystem QA
+on:
+  repository_dispatch:
+    types: [qa-run] # Triggered by a pillar's publish.yml 
+  workflow_dispatch: # Allows manual trigger [9]
+    inputs:
+      artifact_tag:
+        description: 'The pre-release tag to test (e.g., hub-v1.5.0)'
+        required: true
+      artifact_repo:
+        description: 'The repo the artifact lives in (e.g., hub)'
+        required: true
+      test_suite:
+        description: 'Test suite to run (e.g., inter-coffee-shop)'
+        required: true
+
+jobs:
+  run-qa-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout QA repository
+        uses: actions/checkout@v4 # Checks out this (ecosystem-qa) repo
+
+      - name: Install Test Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Log in to Private GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }} # or a machine user
+          password: ${{ secrets.CIRCULAR_ENG_TOKEN }} # PAT with read:packages for circular-engineering
+
+      - name: Download Artifacts
+        env:
+          GITHUB_TOKEN: ${{ secrets.ADMIN_PAT_TOKEN }}
+          TAG_NAME: ${{ github.event.client_payload.tag |
+
+| github.event.inputs.artifact_tag }}
+          REPO_NAME: ${{ github.event.client_payload.repo |
+
+| github.event.inputs.artifact_repo }}
+        run: |
+          mkdir -p./artifacts
+          # This script fetches the.tar.gz assets from the specified release
+          python3./scripts/fetch_artifact.py --repo $REPO_NAME --tag $TAG_NAME --output-dir./artifacts
+          #... (In a real scenario, this script would also fetch "latest stable" for other services)
+
+      - name: Build Test Environment
+        env:
+          TEST_SUITE: ${{ github.event.client_payload.test_suite |
+
+| github.event.inputs.test_suite }}
+        run: |
+          # Build the docker-compose environment for the specified test suite
+          docker-compose -f./environments/$TEST_SUITE/docker-compose.yml build
+
+      - name: Start Test Environment
+        env:
+          TEST_SUITE: ${{ github.event.client_payload.test_suite |
+
+| github.event.inputs.test_suite }}
+        run: |
+          docker-compose -f./environments/$TEST_SUITE/docker-compose.yml up -d
+         ./scripts/wait_for_services.sh # Waits for containers to be healthy
+
+      - name: Run Integration Tests
+        env:
+          TEST_SUITE: ${{ github.event.client_payload.test_suite |
+
+| github.event.inputs.test_suite }}
+        run: |
+          # Run the specific pytest file for this test suite
+          pytest./tests/${{ github.event.client_payload.test_suite_path |
+
+| 'inter_sector/test_coffee_shop_journey.py' }}
+
+      - name: Promote to Stable (On Success)
+        if: success()
+        uses:./.github/workflows/qa-promote.yml
+        with:
+          tag_name: ${{ github.event.client_payload.tag |
+
+| github.event.inputs.artifact_tag }}
+          repo_name: ${{ github.event.client_payload.repo |
+
+| github.event.inputs.artifact_repo }}
+        secrets:
+          GH_TOKEN: ${{ secrets.ADMIN_PAT_TOKEN }} # Needs a PAT to edit releases [8]

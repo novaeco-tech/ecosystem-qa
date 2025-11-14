@@ -1,0 +1,25 @@
+version: '3.8'
+services:
+  hub-api:
+    image: local-test-images/hub-api:${TAG:-latest}
+    build:
+      context:../../..  # Root of the ecosystem-qa repo
+      dockerfile:./environments/inter-coffee-shop/hub-api.Dockerfile
+      args:
+        # This path points to the artifact downloaded by qa-run.yml
+        - ARTIFACT_PATH=./artifacts/hub-api.tar.gz
+    ports:
+      - "8001:8000"
+
+  finance-api:
+    image: local-test-images/finance-api:${TAG:-latest}
+    build:
+      context:../../..
+      dockerfile:./environments/inter-coffee-shop/finance-api.Dockerfile
+      args:
+        # This would be the 'latest-stable' artifact
+        - ARTIFACT_PATH=./artifacts/finance-api.tar.gz 
+    ports:
+      - "8002:8000"
+
+  #... other services (databases, workers, etc.)
