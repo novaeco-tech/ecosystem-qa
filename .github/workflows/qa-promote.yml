@@ -20,7 +20,7 @@ jobs:
         id: get_release
         run: |
           # Fetch the release ID using the tag name
-          RELEASE_JSON=$(gh api "repos/nova-ecosystem/${{ inputs.repo_name }}/releases/tags/${{ inputs.tag_name }}" \
+          RELEASE_JSON=$(gh api "repos/novaeco-tech/${{ inputs.repo_name }}/releases/tags/${{ inputs.tag_name }}" \
             --jq '. | {id:.id, prerelease:.prerelease}')
           echo "RELEASE_DATA=$RELEASE_JSON" >> $GITHUB_OUTPUT
         env:
@@ -30,7 +30,7 @@ jobs:
         if: fromJson(steps.get_release.outputs.RELEASE_DATA).prerelease == true
         run: |
           RELEASE_ID=$(echo '${{ steps.get_release.outputs.RELEASE_DATA }}' | jq.id)
-          gh api "repos/nova-ecosystem/${{ inputs.repo_name }}/releases/$RELEASE_ID" \
+          gh api "repos/novaeco-tech/${{ inputs.repo_name }}/releases/$RELEASE_ID" \
             -X PATCH \
             -f prerelease=false
           echo "Promoted ${{ inputs.repo_name }}/${{ inputs.tag_name }} to Stable."

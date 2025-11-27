@@ -3,20 +3,20 @@ import time
 import os
 
 # Service names are from the docker-compose.yml file
-HUB_URL = "http://hub-api:8000"
-FINANCE_URL = "http://finance-api:8000"
+HUB_URL = "http://novahub-api:8000"
+FINANCE_URL = "http://novafin-api:8000"
 
 def test_coffee_shop_journey():
     """
     Runs a full user journey:
-    1. Create a project in 'hub'
-    2. Check that a corresponding transaction is created in 'finance'
+    1. Create a project in 'NovaHub'
+    2. Check that a corresponding transaction is created in 'NovaFin'
     """
     
     # Step 1: Wait for services to be online
     # (In a real test, this would be in a pytest fixture)
     
-    # Step 2: Create a project in the Hub service
+    # Step 2: Create a project in the NovaHub service
     project_response = requests.post(
         f"{HUB_URL}/v1/projects",
         json={"name": "Test Coffee Shop", "budget": 100}
@@ -24,7 +24,7 @@ def test_coffee_shop_journey():
     assert project_response.status_code == 201
     project_id = project_response.json()["id"]
 
-    # Step 3: Check the Finance service for the transaction
+    # Step 3: Check the NovaFin service for the transaction
     time.sleep(1) # Give time for event to propagate
     
     finance_response = requests.get(

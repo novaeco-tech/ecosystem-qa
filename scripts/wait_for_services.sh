@@ -5,14 +5,14 @@
 echo "Waiting for services..."
 
 # Wait for Hub API
-while! curl -s http://hub-api:8000/health; do
-  echo "Waiting for Hub API..."
+while! curl -s http://novahub-api:8000/health; do
+  echo "Waiting for NovaHub API..."
   sleep 2
 done
 
 # Wait for Finance API
-while! curl -s http://finance-api:8000/health; do
-  echo "Waiting for Finance API..."
+while! curl -s http://novafin-api:8000/health; do
+  echo "Waiting for NovaFin API..."
   sleep 2
 done
 

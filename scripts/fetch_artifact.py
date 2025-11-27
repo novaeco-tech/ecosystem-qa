@@ -4,7 +4,7 @@
 
 #     Get the GITHUB_TOKEN from environment variables.
 
-#     Call the GitHub API: GET /repos/nova-ecosystem/{repo}/releases/tags/{tag}.
+#     Call the GitHub API: GET /repos/novaeco-tech/{repo}/releases/tags/{tag}.
 
 #     Iterate through the assets in the JSON response.
 

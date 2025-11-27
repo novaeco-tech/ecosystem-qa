@@ -2,7 +2,7 @@
 ARG ARTIFACT_PATH
 
 # 1. Start from your private, hardened base runtime
-FROM ghcr.io/circular-engineering/runtime-api:latest
+FROM ghcr.io/circular-engineering/runtime-python:latest
 
 # 2. Copy the downloaded artifact into the image [10, 11]
 COPY $ARTIFACT_PATH /app/artifact.tar.gz
