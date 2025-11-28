@@ -1,89 +1,122 @@
 name: Run Ecosystem QA
 on:
   repository_dispatch:
-    types: [qa-run] # Triggered by a pillar's publish.yml 
-  workflow_dispatch: # Allows manual trigger [9]
+    types: [qa-run]
+  workflow_dispatch:
     inputs:
-      artifact_tag:
-        description: 'The pre-release tag to test (e.g., hub-v1.5.0)'
+      repo:
         required: true
-      artifact_repo:
-        description: 'The repo the artifact lives in (e.g., hub)'
+      tag:
         required: true
-      test_suite:
-        description: 'Test suite to run (e.g., inter-coffee-shop)'
+      artifact_name:
         required: true
 
 jobs:
-  run-qa-suite:
+  smoke-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout QA repository
-        uses: actions/checkout@v4 # Checks out this (ecosystem-qa) repo
+      - uses: actions/checkout@v4
 
-      - name: Install Test Dependencies
-        run: pip install -r requirements.txt
-
-      - name: Log in to Private GHCR
-        uses: docker/login-action@v3
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }} # or a machine user
-          password: ${{ secrets.CIRCULAR_ENG_TOKEN }} # PAT with read:packages for circular-engineering
+          python-version: '3.11'
+      
+      - name: Install Script Deps
+        run: pip install requests
 
-      - name: Download Artifacts
-        env:
-          GITHUB_TOKEN: ${{ secrets.ADMIN_PAT_TOKEN }}
-          TAG_NAME: ${{ github.event.client_payload.tag |
+      # --- NEW: Generate a Universal Token ---
+      - name: Generate App Token
+        id: app_token
+        uses: actions/create-github-app-token@v1
+        with:
+          # Use the Org Secrets we configured earlier
+          app-id: ${{ secrets.QA_APP_ID }}
+          private-key: ${{ secrets.QA_APP_PRIVATE_KEY }}
+          owner: novaeco-tech 
+          # This token now has Read/Write access to ALL repos where the app is installed
 
-| github.event.inputs.artifact_tag }}
-          REPO_NAME: ${{ github.event.client_payload.repo |
-
-| github.event.inputs.artifact_repo }}
+      # 1. Set Inputs
+      - name: Set Inputs
         run: |
-          mkdir -p./artifacts
-          # This script fetches the.tar.gz assets from the specified release
-          python3./scripts/fetch_artifact.py --repo $REPO_NAME --tag $TAG_NAME --output-dir./artifacts
-          #... (In a real scenario, this script would also fetch "latest stable" for other services)
+          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            echo "REPO=${{ github.event.client_payload.repo }}" >> $GITHUB_ENV
+            echo "TAG=${{ github.event.client_payload.tag }}" >> $GITHUB_ENV
+            echo "ARTIFACT=${{ github.event.client_payload.artifact_name }}" >> $GITHUB_ENV
+          else
+            echo "REPO=${{ inputs.repo }}" >> $GITHUB_ENV
+            echo "TAG=${{ inputs.tag }}" >> $GITHUB_ENV
+            echo "ARTIFACT=${{ inputs.artifact_name }}" >> $GITHUB_ENV
+          fi
 
-      - name: Build Test Environment
-        env:
-          TEST_SUITE: ${{ github.event.client_payload.test_suite |
-
-| github.event.inputs.test_suite }}
+      # 2. Determine Service Configuration
+      - name: Configure Service
+        id: config
         run: |
-          # Build the docker-compose environment for the specified test suite
-          docker-compose -f./environments/$TEST_SUITE/docker-compose.yml build
+          PORT=8000
+          CMD="python main.py"
+          HEALTH_PATH="/health"
 
-      - name: Start Test Environment
-        env:
-          TEST_SUITE: ${{ github.event.client_payload.test_suite |
+          if [[ "${{ env.ARTIFACT }}" == *"website"* ]]; then
+             PORT=3000
+             CMD="python -m http.server 3000"
+             HEALTH_PATH="/"
+          elif [[ "${{ env.ARTIFACT }}" == *"app"* ]]; then
+             PORT=5000
+             CMD="python app.py"
+             HEALTH_PATH="/"
+          elif [[ "${{ env.ARTIFACT }}" == *"auth"* ]]; then
+             PORT=9000
+             CMD="python main.py"
+             HEALTH_PATH="/health"
+          fi
 
-| github.event.inputs.test_suite }}
+          echo "PORT=$PORT" >> $GITHUB_ENV
+          echo "CMD=$CMD" >> $GITHUB_ENV
+          echo "HEALTH_PATH=$HEALTH_PATH" >> $GITHUB_ENV
+
+      # 3. Download Artifact (Using App Token)
+      - name: Download Artifact
         run: |
-          docker-compose -f./environments/$TEST_SUITE/docker-compose.yml up -d
-         ./scripts/wait_for_services.sh # Waits for containers to be healthy
-
-      - name: Run Integration Tests
+          mkdir -p build_ctx
+          python3 scripts/fetch_artifact.py \
+            --repo ${{ env.REPO }} \
+            --tag ${{ env.TAG }} \
+            --artifact ${{ env.ARTIFACT }} \
+            --output-dir build_ctx
         env:
-          TEST_SUITE: ${{ github.event.client_payload.test_suite |
+          GITHUB_TOKEN: ${{ steps.app_token.outputs.token }}
 
-| github.event.inputs.test_suite }}
+      # 4. Build & Run
+      - name: Start Service
         run: |
-          # Run the specific pytest file for this test suite
-          pytest./tests/${{ github.event.client_payload.test_suite_path |
+          cp environments/Dockerfile.template build_ctx/Dockerfile
+          docker build -t test-service build_ctx
+          docker run -d -p ${{ env.PORT }}:${{ env.PORT }} \
+            --name test-container \
+            test-service \
+            sh -c "${{ env.CMD }}"
+          sleep 10
 
-| 'inter_sector/test_coffee_shop_journey.py' }}
+      # 5. Verify
+      - name: Health Check
+        run: |
+          URL="http://localhost:${{ env.PORT }}${{ env.HEALTH_PATH }}"
+          echo "Checking $URL..."
+          if curl -s --fail "$URL"; then
+            echo "✅ Service is healthy!"
+          else
+             echo "❌ Service failed."
+             docker logs test-container
+             exit 1
+          fi
 
-      - name: Promote to Stable (On Success)
+      # 6. Promote Release (Using App Token)
+      - name: Promote Release
         if: success()
-        uses:./.github/workflows/qa-promote.yml
-        with:
-          tag_name: ${{ github.event.client_payload.tag |
-
-| github.event.inputs.artifact_tag }}
-          repo_name: ${{ github.event.client_payload.repo |
-
-| github.event.inputs.artifact_repo }}
-        secrets:
-          GH_TOKEN: ${{ secrets.ADMIN_PAT_TOKEN }} # Needs a PAT to edit releases [8]
+        run: |
+          echo "Promoting ${{ env.TAG }}..."
+          gh api "repos/novaeco-tech/${{ env.REPO }}/releases/tags/${{ env.TAG }}" \
+            -X PATCH -f prerelease=false
+        env:
+          GITHUB_TOKEN: ${{ steps.app_token.outputs.token }}

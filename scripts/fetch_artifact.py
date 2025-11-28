@@ -1,13 +1,58 @@
-# This file would be a Python script using requests and argparse to:
+import os
+import argparse
+import requests
+import sys
 
-#     Take --repo, --tag, and --output-dir as arguments.
+def download_artifact(repo, tag, artifact_name, output_dir, token):
+    print(f"Fetching {artifact_name} from {repo} @ {tag}...")
+    
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    # 1. Get Release by Tag
+    url = f"https://api.github.com/repos/novaeco-tech/{repo}/releases/tags/{tag}"
+    r = requests.get(url, headers=headers)
+    if r.status_code != 200:
+        print(f"Error fetching release: {r.text}")
+        sys.exit(1)
+        
+    release_data = r.json()
+    asset_url = None
+    
+    # 2. Find the specific asset url
+    for asset in release_data.get("assets", []):
+        if asset["name"] == artifact_name:
+            asset_url = asset["url"] # This is the API URL for the asset
+            break
+            
+    if not asset_url:
+        print(f"Artifact '{artifact_name}' not found in release.")
+        sys.exit(1)
 
-#     Get the GITHUB_TOKEN from environment variables.
+    # 3. Download the asset (Accept header is crucial for binary download)
+    headers["Accept"] = "application/octet-stream"
+    r = requests.get(asset_url, headers=headers, stream=True)
+    
+    out_path = os.path.join(output_dir, artifact_name)
+    with open(out_path, 'wb') as f:
+        for chunk in r.iter_content(chunk_size=8192):
+            f.write(chunk)
+            
+    print(f"Downloaded to {out_path}")
 
-#     Call the GitHub API: GET /repos/novaeco-tech/{repo}/releases/tags/{tag}.
-
-#     Iterate through the assets in the JSON response.
-
-#     Find assets ending in .tar.gz.
-
-#     Download each asset to the specified --output-dir.
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repo", required=True)
+    parser.add_argument("--tag", required=True)
+    parser.add_argument("--artifact", required=True)
+    parser.add_argument("--output-dir", required=True)
+    args = parser.parse_args()
+    
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        print("GITHUB_TOKEN env var missing")
+        sys.exit(1)
+        
+    download_artifact(args.repo, args.tag, args.artifact, args.output_dir, token)

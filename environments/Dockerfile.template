@@ -1,0 +1,13 @@
+FROM ghcr.io/novaeco-tech/dev-python:latest
+
+WORKDIR /app
+
+# 1. Copy and unpack the artifact
+COPY artifact.tar.gz /app/artifact.tar.gz
+RUN tar -xzf artifact.tar.gz && rm artifact.tar.gz
+
+# 2. Install requirements if they exist
+# (The website won't have this, so we use || true)
+RUN pip install -r requirements.txt || true
+
+# 3. The CMD is now passed at runtime by the workflow
