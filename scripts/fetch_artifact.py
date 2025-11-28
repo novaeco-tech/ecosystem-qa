@@ -11,7 +11,7 @@ def download_artifact(repo, tag, artifact_name, output_dir, token):
         "Accept": "application/vnd.github.v3+json"
     }
     
-    # 1. Get Release by Tag
+    # 1. Get Release metadata
     url = f"https://api.github.com/repos/novaeco-tech/{repo}/releases/tags/{tag}"
     r = requests.get(url, headers=headers)
     if r.status_code != 200:
@@ -24,18 +24,20 @@ def download_artifact(repo, tag, artifact_name, output_dir, token):
     # 2. Find the specific asset url
     for asset in release_data.get("assets", []):
         if asset["name"] == artifact_name:
-            asset_url = asset["url"] # This is the API URL for the asset
+            asset_url = asset["url"]
             break
             
     if not asset_url:
         print(f"Artifact '{artifact_name}' not found in release.")
         sys.exit(1)
 
-    # 3. Download the asset (Accept header is crucial for binary download)
+    # 3. Download the asset
     headers["Accept"] = "application/octet-stream"
     r = requests.get(asset_url, headers=headers, stream=True)
     
-    out_path = os.path.join(output_dir, artifact_name)
+    # Force the filename to 'artifact.tar.gz' so the Dockerfile can find it
+    out_path = os.path.join(output_dir, "artifact.tar.gz")
+    
     with open(out_path, 'wb') as f:
         for chunk in r.iter_content(chunk_size=8192):
             f.write(chunk)
