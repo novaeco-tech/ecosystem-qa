@@ -1,0 +1,13 @@
+# Standard Node Runtime for Apps and Websites
+FROM ghcr.io/novaeco-tech/dev-node:latest
+
+WORKDIR /app
+
+ARG ARTIFACT_PATH
+COPY ${ARTIFACT_PATH} /app/artifact.tar.gz
+
+# Unpack and Install
+RUN tar -xzf artifact.tar.gz && rm artifact.tar.gz && \
+    npm install --production
+
+# CMD is passed by docker-compose command override

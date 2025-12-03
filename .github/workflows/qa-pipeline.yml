@@ -1,0 +1,102 @@
+name: QA Pipeline (Release Candidate)
+
+on:
+  repository_dispatch:
+    types: [qa-trigger] 
+    # Example payload expected: { "component": "ecosystem-core-app", "version": "v1.5.1", "category": "core" }
+
+jobs:
+  validate-candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Install Deps
+        run: pip install requests
+
+      - name: Generate Candidate Manifest
+        id: generate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Merges the incoming change into the current stable manifest
+          python scripts/generate_candidate.py '${{ toJSON(github.event.client_payload) }}'
+          
+      - name: Upload Manifest to the next job integration-test
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-manifest
+          path: candidate-manifest.json
+
+  integration-test:
+    needs: validate-candidate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download Manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-manifest
+
+      - name: Fetch ALL Ecosystem Artifacts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # This downloads ~50 artifacts. Ideally, cache this or use a private registry.
+          python scripts/fetch_all_artifacts.py
+
+      - name: Spin Up Full Environment
+        run: |
+          # Generates a massive docker-compose from the manifest
+          python scripts/generate_compose.py candidate-manifest.json
+          docker-compose up -d --build
+
+      - name: Run Tests (L1 - Onboarding)
+        run: pytest tests/level1_onboarding
+
+      - name: Run Tests (L2 - Easy)
+        run: pytest tests/level2_easy
+
+      - name: Run Tests (L3 - Medium)
+        run: pytest tests/level3_medium
+        
+      # L4 usually requires too much resource for GitHub Actions standard runners.
+      # You might skip or mock parts here.
+      
+      - name: Archive Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-logs
+          path: logs/
+
+  promote-candidate:
+    needs: integration-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-manifest
+          
+      - name: Generate App Token
+        id: app_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.OPS_APP_ID }}
+          private-key: ${{ secrets.OPS_APP_PRIVATE_KEY }}
+          owner: novaeco-tech
+
+      - name: Signal Ecosystem Releases
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ steps.app_token.outputs.token }}
+          repository: novaeco-tech/ecosystem-releases
+          event-type: promote-release
+          client-payload: '{"manifest": "candidate-manifest.json", "status": "qa_passed", "qa_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}'

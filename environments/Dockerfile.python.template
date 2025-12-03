@@ -1,0 +1,13 @@
+# Standard Python Runtime for APIs and Workers
+FROM ghcr.io/novaeco-tech/dev-python:latest
+
+WORKDIR /app
+
+ARG ARTIFACT_PATH
+COPY ${ARTIFACT_PATH} /app/artifact.tar.gz
+
+# Unpack and Install
+RUN tar -xzf artifact.tar.gz && rm artifact.tar.gz && \
+    if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+# CMD is passed by docker-compose command override
