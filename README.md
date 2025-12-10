@@ -1,4 +1,4 @@
-# 🧪 Ecosystem QA Hub
+# 🧪 NovaEco QA
 
 This repository is the central integration testing "auditor" for the NovaEco.
 
